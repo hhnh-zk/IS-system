@@ -1,0 +1,5 @@
+{
+  "name": "Cognitive Continuity Lab",
+  "description": "A research interface for studying LLM interruption recovery using Intent Summaries.",
+  "requestFramePermissions": []
+}
