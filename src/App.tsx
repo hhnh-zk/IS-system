@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Plus, PauseCircle, PlayCircle, Info, Sparkles } from 'lucide-react';
 import { Message, IntentSummaryData, ChatSession } from './types';
-import { generateChatResponse, generateIntentSummary, checkInterruption, logEvent } from './services/ai';
+import { generateChatResponseStream, generateIntentSummary, checkInterruption, logEvent } from './services/ai';
 import { ChatMessage } from './components/ChatMessage';
 import { IntentSummary } from './components/IntentSummary';
 import { motion, AnimatePresence } from 'motion/react';
@@ -82,18 +82,41 @@ export default function App() {
     setIsLoading(true);
     setError(null);
 
+    // Create a placeholder assistant message that we'll fill in as chunks arrive
+    const assistantMsgId = (Date.now() + 1).toString();
+    const assistantTimestamp = Date.now();
+    const placeholderMessage: Message = {
+      id: assistantMsgId,
+      role: 'model',
+      content: '',
+      timestamp: assistantTimestamp,
+    };
+    setMessages(prev => [...prev, placeholderMessage]);
+
     try {
-      const responseData = await generateChatResponse([...messages, userMessage], participantId, groupId, isInterruptionSuccess);
+      const responseData = await generateChatResponseStream(
+        [...messages, userMessage],
+        participantId,
+        groupId,
+        isInterruptionSuccess,
+        (fullText: string) => {
+          // Update the assistant message content as each chunk arrives
+          setMessages((prev: Message[]) => prev.map((msg: Message) =>
+            msg.id === assistantMsgId ? { ...msg, content: fullText } : msg
+          ));
+        },
+      );
       setIsInterruptionSuccess(false);
-      const assistantMessage: Message = {
-        id: responseData.id || (Date.now() + 1).toString(),
-        role: 'model',
-        content: responseData.text,
-        timestamp: responseData.timestamp || Date.now(),
-      };
-      setMessages(prev => [...prev, assistantMessage]);
+      // Final update with the complete message
+      setMessages((prev: Message[]) => prev.map((msg: Message) =>
+        msg.id === assistantMsgId
+          ? { ...msg, content: responseData.text, timestamp: responseData.timestamp || assistantTimestamp }
+          : msg
+      ));
     } catch (err: any) {
       console.error("Chat Error:", err);
+      // Remove the placeholder message on error
+      setMessages((prev: Message[]) => prev.filter((msg: Message) => msg.id !== assistantMsgId));
       setError(err.message || "Failed to send message. Please check your network or API configuration.");
     } finally {
       setIsLoading(false);

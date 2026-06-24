@@ -66,7 +66,7 @@ IS/
 - **数据库**：通过 `pg` 驱动连接 PostgreSQL，SSL 配置为 `rejectUnauthorized: false`
   - 首次连接时自动建表（无迁移系统）
   - 表：`messages`（聊天历史 + 事件）、`summaries`（生成的意图摘要）
-- **AI 集成**：使用 OpenAI API 的 `gpt-4` 模型
+- **AI 集成**：使用 DeepSeek API 的 `deepseek-chat` 模型（兼容 OpenAI SDK）
   - 系统提示词：旅行助手，提供详细的旅行方案
 - **API 版本号**：`"1.1.4-ORDER-FIX"`（硬编码在 `api/index.ts` 中）
 
@@ -80,11 +80,10 @@ IS/
 必需的环境变量（见 `.env.example`）：
 ```
 DATABASE_URL=         # PostgreSQL 连接字符串（例如 postgres://user:pass@host:5432/db）
-OPENAI_API_KEY=       # OpenAI API 密钥，用于 GPT-4 模型访问
-# GEMINI_API_KEY=     # .env.example 中存在但代码中未使用
+DEEPSEEK_API_KEY=     # DeepSeek API 密钥，用于 deepseek-chat 模型访问
 ```
 
-- **注意**：代码库使用 `OPENAI_API_KEY` 配合 `gpt-4` 模型。`@google/genai` 列在 `package.json` 依赖中，但代码中从未导入或使用。
+- **注意**：代码库使用 `DEEPSEEK_API_KEY` 配合 DeepSeek API（兼容 OpenAI SDK），`baseURL` 设置为 `https://api.deepseek.com`。
 - 数据库使用 SSL 并设置 `rejectUnauthorized: false`，以便兼容托管式 PostgreSQL 提供商。
 
 ## 实验设计
@@ -155,7 +154,7 @@ CREATE TABLE summaries (
   id SERIAL PRIMARY KEY,
   participant_id TEXT,
   group_id TEXT,
-  data TEXT,                    -- GPT-4 返回的 JSON 摘要
+  data TEXT,                    -- DeepSeek 返回的 JSON 摘要
   timestamp BIGINT
 );
 ```
@@ -168,7 +167,7 @@ CREATE TABLE summaries (
 |--------|------|------|
 | `GET` | `/api/ping` | 健康检查（返回 `"pong"`） |
 | `GET` | `/api/health` | 详细状态（DB/AI/Vite 初始化状态） |
-| `POST` | `/api/chat` | 通过 GPT-4 生成 AI 回复（旅行助手系统提示词） |
+| `POST` | `/api/chat` | 通过 DeepSeek 生成 AI 回复（旅行助手系统提示词） |
 | `POST` | `/api/summary` | 根据对话历史生成结构化意图摘要 |
 | `POST` | `/api/check-interruption` | 判断旅行方案是否完整到足以触发中断 |
 | `GET` | `/api/messages` | 获取消息历史（可选 `?participantId=` 过滤） |
@@ -274,7 +273,7 @@ function cn(...inputs: ClassValue[]) {
 
 - **Ref 作为状态守卫**：使用 `useRef` 管理 `isInterruptionTriggered` 和 `isCheckingCondition`，防止跨渲染的竞态条件
 - **后端懒初始化**：服务器立即开始监听；数据库、AI 客户端和 Vite 中间件通过 `initializeAll()` + `Promise.allSettled()` 异步初始化
-- **动态导入**：后端对 `openai`、`pg` 和 `vite` 使用 `await import(...)` 动态导入，避免 ESM/CJS 问题并延迟加载
+- **动态导入**：后端对 `openai`（作为兼容层）、`pg` 和 `vite` 使用 `await import(...)` 动态导入，避免 ESM/CJS 问题并延迟加载
 - **数据库写入即弃**：SQL INSERT 失败会被捕获并记录日志，但从不阻塞 API 响应
 - **HMR**：可通过 `DISABLE_HMR=true` 环境变量禁用（在 AI Studio 中用于防止闪烁）
 - **无路由库**：单页应用，没有 React Router — 通过 useState/useEffect 管理状态
@@ -290,13 +289,13 @@ function cn(...inputs: ClassValue[]) {
 | `clsx` / `tailwind-merge` | 条件 CSS 类名合并 |
 | `express` | 后端 HTTP 服务器 |
 | `pg` | PostgreSQL 客户端 |
-| `openai` | OpenAI API 客户端（GPT-4） |
+| `openai` | OpenAI SDK（作为 DeepSeek 兼容层，baseURL 指向 https://api.deepseek.com） |
+| `deepseek-chat` 模型 | 主模型，替代原 GPT-4 |
 | `vite` / `@vitejs/plugin-react` | 构建工具 + React 插件 |
 | `@tailwindcss/vite` | Tailwind CSS v4 Vite 插件 |
 | `tailwindcss` | CSS 实用工具框架（v4） |
 | `tsx` | 开发环境下执行 TypeScript |
 | `dotenv` | 环境变量加载 |
-| `@google/genai` | **已安装但未使用** — 在 package.json 中但从未导入 |
 
 ## 修改时注意
 
